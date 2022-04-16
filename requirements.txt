@@ -1,0 +1,4 @@
+gdown==4.3.0
+line_profiler==3.4.0
+numpy==1.22.2
+tqdm==4.62.3

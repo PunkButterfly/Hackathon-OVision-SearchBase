@@ -1,0 +1,20 @@
+name: Hackaton_Search_Base
+
+on:
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run a one-line script
+        env:
+          OVISOIN_TOKEN: ${{ secrets.OVISOIN_TOKEN }}
+        run: |
+          zip -r current.zip *
+          curl -v -H "Authorization: Bearer ${OVISOIN_TOKEN}" -F 'file=@"current.zip"' https://hackathon.o.vision/protected/upload
