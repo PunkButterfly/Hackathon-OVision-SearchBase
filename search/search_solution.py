@@ -5,16 +5,17 @@ from tqdm import tqdm
 from typing import List, Tuple
 from config import Config as cfg
 from .search import Base
-from sklearn.cluster import MiniBatchKMeans
+from annoy import AnnoyIndex
 
 
 class SearchSolution(Base):
+    # check
     def __init__(self, data_file='./data/train_data.pickle',
                  data_url='https://drive.google.com/uc?id=1D_jPx7uIaCJiPb3pkxcrkbeFcEogdg2R') -> None:
         self.data_file = data_file
         self.data_url = data_url
-        self.n_models = 10
-        self.n_clusters = 100
+        self.trees = 20
+        self.n_count = 100
 
     def set_base_from_pickle(self):
         if not os.path.isfile(self.data_file):
@@ -32,31 +33,15 @@ class SearchSolution(Base):
         self.reg_matrix = np.concatenate(self.reg_matrix, axis=0)
         self.pass_dict = data['pass']
 
-        self.k_means_list = []
-        self.models_labels_dicts = []
-
-        for k in range(self.n_models):
-            k_means = MiniBatchKMeans(n_clusters=self.n_clusters)
-            k_means.fit(self.reg_matrix)
-
-            model_labels_dict = {}
-            labels = k_means.labels_
-
-            for i, lable in enumerate(labels):
-                if lable not in model_labels_dict:
-                    model_labels_dict[lable] = []
-                model_labels_dict[lable].append(i)
-
-            self.k_means_list.append(k_means)
-            self.models_labels_dicts.append(model_labels_dict)
-            print(f"Train {k+1} models.")
+        self.annoy_model = AnnoyIndex(512, 'angular')
+        for i in range(len(self.reg_matrix)):
+            self.annoy_model.add_item(i, self.reg_matrix[i])
+        print('building model...')
+        self.annoy_model.build(self.trees)
+        print('model build')
 
     def search(self, query: np.array) -> List[Tuple]:
-        response_indexes = []
-        for i in range(self.n_models):
-            curr_cluster = self.k_means_list[i].predict([query])[0]
-            response_indexes += self.models_labels_dicts[i][curr_cluster]
-        response_indexes = list(set(response_indexes))
+        response_indexes = self.annoy_model.get_nns_by_vector(query, self.n_count)
 
         similarity = self.cos_sim(query, response_indexes)
         return [(response_indexes[i], sim) for i, sim in enumerate(similarity)]
