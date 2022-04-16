@@ -9,7 +9,6 @@ from sklearn.cluster import MiniBatchKMeans
 
 
 class SearchSolution(Base):
-    # check
     def __init__(self, data_file='./data/train_data.pickle',
                  data_url='https://drive.google.com/uc?id=1D_jPx7uIaCJiPb3pkxcrkbeFcEogdg2R') -> None:
         self.data_file = data_file
