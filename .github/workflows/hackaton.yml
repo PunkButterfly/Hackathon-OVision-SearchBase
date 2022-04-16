@@ -3,7 +3,7 @@ name: Hackaton_Search_Base
 on:
   push:
     branches:
-      - 'main'
+      - 'master'
 
 jobs:
   build:
