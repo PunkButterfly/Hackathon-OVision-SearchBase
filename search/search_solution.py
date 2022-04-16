@@ -5,7 +5,7 @@ from tqdm import tqdm
 from typing import List, Tuple
 from config import Config as cfg
 from .search import Base
-from annoy import AnnoyIndex
+import faiss
 
 
 class SearchSolution(Base):
@@ -14,8 +14,9 @@ class SearchSolution(Base):
                  data_url='https://drive.google.com/uc?id=1D_jPx7uIaCJiPb3pkxcrkbeFcEogdg2R') -> None:
         self.data_file = data_file
         self.data_url = data_url
-        self.trees = 20
-        self.n_count = 100
+        self.dim = 512
+        self.n_clusters = 1000
+        self.top_n = 1
 
     def set_base_from_pickle(self):
         if not os.path.isfile(self.data_file):
@@ -31,21 +32,24 @@ class SearchSolution(Base):
             self.reg_matrix[i] = data['reg'][key][0][None]
 
         self.reg_matrix = np.concatenate(self.reg_matrix, axis=0)
+
+        self.reg_matrix = self.reg_matrix.astype('float32')
         self.pass_dict = data['pass']
 
-        self.annoy_model = AnnoyIndex(512, 'angular')
-        for i in range(len(self.reg_matrix)):
-            self.annoy_model.add_item(i, self.reg_matrix[i])
-        print('building model...')
-        self.annoy_model.build(self.trees)
-        print('model build')
+        print("Building model...")
+        self.quantiser = faiss.IndexFlatL2(self.dim)
+        self.faiss_model = faiss.IndexIVFFlat(self.quantiser, self.dim,
+                                              self.n_clusters, faiss.METRIC_INNER_PRODUCT)
+
+        self.faiss_model.train(self.reg_matrix)
+        self.faiss_model.add(self.reg_matrix)
+        print("Model build")
 
     def search(self, query: np.array) -> List[Tuple]:
-        response_indexes = self.annoy_model.get_nns_by_vector(query, self.n_count)
+        D, I = self.faiss_model.search(np.array([query.astype('float32')]), self.top_n)
 
-        similarity = self.cos_sim(query, response_indexes)
-        return [(response_indexes[i], sim) for i, sim in enumerate(similarity)]
+        # similarity = self.cos_sim(query, response_indexes)
+        return [(I[0][i], D[0][i]) for i in range(self.top_n)]
 
     def cos_sim(self, query: np.array, response_indexes) -> np.array:
-        nei_matrix = [self.reg_matrix[i] for i in response_indexes]
-        return np.dot(nei_matrix, query)
+        pass

@@ -1,55 +1,60 @@
-import pickle, os, time, gdown
-import numpy as np
-
 from tqdm import tqdm
-from typing import List, Tuple
+import pickle
+import numpy as np
+from time import time
 from config import Config as cfg
-from .search import Base
-import faiss
+import random
 
 
-class SearchSolution(Base):
-    # check
-    def __init__(self, data_file='./data/train_data.pickle',
-                 data_url='https://drive.google.com/uc?id=1D_jPx7uIaCJiPb3pkxcrkbeFcEogdg2R') -> None:
-        self.data_file = data_file
-        self.data_url = data_url
-        self.dim = 512
-        self.n_clusters = 1000
-        self.top_n = 1
+def validate(search_object, base_speed_file='./base_speed.pickle') -> float:
+    '''
+    Validates baseline and improved searh
+    Return:
+            metric : float - score for search
+    '''
+    sample = cfg.samples
 
-    def set_base_from_pickle(self):
-        if not os.path.isfile(self.data_file):
-            if not os.path.isdir('./data'):
-                os.mkdir('./data')
-            gdown.download(self.data_url, self.data_file, quiet=False)
-        print('reading pickle file..')
-        with open(self.data_file, 'rb') as f:
-            data = pickle.load(f)
-        print('pickle is read')
-        self.reg_matrix = [None] * len(data['reg'])
-        for i, key in enumerate(data['reg']):
-            self.reg_matrix[i] = data['reg'][key][0][None]
+    with open(base_speed_file, 'rb') as f:
+        base_speed = pickle.load(f)
 
-        self.reg_matrix = np.concatenate(self.reg_matrix, axis=0)
+    search_fun = search_object.search
+    N, C, C_time, T_base = 0, 0, 0, 0
 
-        self.reg_matrix = self.reg_matrix.astype('float32')
-        self.pass_dict = data['pass']
+    random.seed(42)
+    pass_dict = random.sample(search_object.pass_dict.items(), sample)
+    for i, tup in enumerate(tqdm(pass_dict, total=sample)):
+        idx, passes = tup
+        for q  in passes:
+            t0 = time()
+            c_output = search_fun(query=q)
+            t1 = time()
+            T_base += (t1 - t0)
 
-        print("Building model...")
-        self.quantiser = faiss.IndexFlatL2(self.dim)
-        self.faiss_model = faiss.IndexIVFFlat(self.quantiser, self.dim,
-                                              self.n_clusters, faiss.METRIC_INNER_PRODUCT)
+            C_set = [True for tup in c_output if tup[0] == idx]
+            if len(C_set):
+                C += 1
+                C_time += (t1 - t0)
+                print(t1 - t0)
+            N += 1
 
-        self.faiss_model.train(self.reg_matrix)
-        self.faiss_model.add(self.reg_matrix)
-        print("Model build")
+        if i > sample:
+            break
+    print(C, N, C_time)
+    metric = calc_metric(C, N, C_time, base_speed)
+    return metric
 
-    def search(self, query: np.array) -> List[Tuple]:
-        D, I = self.faiss_model.search(np.array([query.astype('float32')]), self.top_n)
+def calc_metric(C: int, N: int, C_time: float, base_speed : float) -> float:
+    '''
+    Calculates comparison metric of the search
+    Arguments:
+        C : int - corrent search count
+        N : int - searches count
+        C_time : float - total time spent for correct searches
 
-        # similarity = self.cos_sim(query, response_indexes)
-        return [(I[0][i], D[0][i]) for i in range(self.top_n)]
+    Return:
+        S : int - metric value (the lesser the better)
+    '''
 
-    def cos_sim(self, query: np.array, response_indexes) -> np.array:
-        pass
+    alpha = np.exp(2 - (C / N))
+    S = C_time / N  + (1 - C / N) * alpha * base_speed
+    return S
